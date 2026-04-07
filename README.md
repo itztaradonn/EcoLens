@@ -192,6 +192,3 @@ Use these to test the app via Photo Library if you don't have trash items nearby
 
 This project uses the [Apple FastViT-T8 model](https://huggingface.co/apple/coreml-FastViT-T8) which is available under Apple's license terms.
 
----
-
-Built with ❤️ for the environment 🌍
