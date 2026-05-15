@@ -20,14 +20,6 @@ EcoLens is a SwiftUI iOS app that uses Apple's **FastViT-T8** CoreML model to cl
 
 ---
 
-## 📱 Screenshots
-
-| Home Screen | Result - Biodegradable | Result - Non-Biodegradable | History |
-|:-----------:|:---------------------:|:--------------------------:|:-------:|
-| Animated hero with scan button | Green theme with compost tips | Red theme with recycling info | Eco score + filter chips |
-
----
-
 ## 🔧 Setup Instructions
 
 ### Prerequisites
