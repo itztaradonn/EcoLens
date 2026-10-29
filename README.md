@@ -72,18 +72,19 @@ EcoLens/
 5. Also delete the default `EcoLensApp.swift` that Xcode created (we have our own)
 
 ### Step 3: Add the FastViT-T8 Model
-The model has been downloaded to the `FastViTT8/` folder.
+The model is **not** included in this repo. Download it into a `FastViTT8/` folder first (the project won't compile without it):
+
+```bash
+pip install huggingface_hub
+python -c "from huggingface_hub import snapshot_download; snapshot_download('apple/coreml-FastViT-T8', local_dir='./FastViTT8')"
+```
+
+Then:
 
 1. Find `FastViTT8/FastViTT8F16.mlpackage` in Finder
 2. Drag it into your Xcode project navigator (root level)
 3. Check "Copy items if needed"
 4. Xcode will auto-generate a `FastViTT8F16` Swift class
-
-> ⚠️ If you need to re-download the model:
-> ```bash
-> pip install huggingface_hub
-> python -c "from huggingface_hub import snapshot_download; snapshot_download('apple/coreml-FastViT-T8', local_dir='./FastViTT8')"
-> ```
 
 ### Step 4: Configure Info.plist
 If Xcode doesn't auto-detect the `Info.plist`:

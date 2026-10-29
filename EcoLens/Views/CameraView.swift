@@ -16,14 +16,17 @@ struct CameraView: UIViewControllerRepresentable {
     
     func makeUIViewController(context: Context) -> UIImagePickerController {
         let picker = UIImagePickerController()
-        picker.sourceType = sourceType
+        // Fall back to the photo library when the camera is unavailable (e.g. iOS Simulator)
+        let resolvedSource: UIImagePickerController.SourceType =
+            UIImagePickerController.isSourceTypeAvailable(sourceType) ? sourceType : .photoLibrary
+        picker.sourceType = resolvedSource
         picker.delegate = context.coordinator
         picker.allowsEditing = false
         
         // Style the picker
         picker.navigationBar.tintColor = UIColor(Color.ecoGreen)
         
-        if sourceType == .camera {
+        if resolvedSource == .camera {
             picker.cameraCaptureMode = .photo
             picker.cameraFlashMode = .auto
         }

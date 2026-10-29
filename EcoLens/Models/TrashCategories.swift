@@ -341,7 +341,6 @@ struct TrashCategoryMapper {
         "backpack": "300+ years (if synthetic)",
         "suitcase": "100+ years",
         "briefcase": "100+ years",
-        "plastic bag": "500-1000 years",
         "trash can": "100+ years",
         "garbage": "varies",
         "ashcan": "100+ years",
