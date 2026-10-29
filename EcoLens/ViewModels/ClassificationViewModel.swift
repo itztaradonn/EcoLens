@@ -43,14 +43,23 @@ class ClassificationViewModel: ObservableObject {
     @Published var errorMessage: String?
     
     private let classifier = ImageClassifier()
+    // Legacy UserDefaults key, read once to migrate older history
     private let historyKey = "eco_lens_scan_history"
-    
+    // Serial so saves are written in order
+    private let storageQueue = DispatchQueue(label: "com.ecolens.history", qos: .utility)
+    private let historyFileURL = FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("scan_history.json")
+
     init() {
         loadHistory()
     }
-    
+
     // MARK: - Classification
     func classifyImage(_ image: UIImage) {
+        // Ignore new photos while one is still being classified
+        guard !isClassifying else { return }
+
         selectedImage = image
         appState = .classifying
         isClassifying = true
@@ -116,19 +125,35 @@ class ClassificationViewModel: ObservableObject {
         saveHistory()
     }
     
+    // History holds image data, which is too large for UserDefaults, so it lives in a file
     private func saveHistory() {
-        do {
-            let data = try JSONEncoder().encode(scanHistory)
-            UserDefaults.standard.set(data, forKey: historyKey)
-        } catch {
-            print("❌ Failed to save history: \(error)")
+        let history = scanHistory
+        let url = historyFileURL
+        storageQueue.async {
+            do {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                let data = try JSONEncoder().encode(history)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                print("❌ Failed to save history: \(error)")
+            }
         }
     }
-    
+
     private func loadHistory() {
-        guard let data = UserDefaults.standard.data(forKey: historyKey) else { return }
+        let legacyData = UserDefaults.standard.data(forKey: historyKey)
+        guard let data = (try? Data(contentsOf: historyFileURL)) ?? legacyData else { return }
         do {
             scanHistory = try JSONDecoder().decode([ClassificationResult].self, from: data)
+
+            // Move history saved by older versions out of UserDefaults
+            if legacyData != nil {
+                saveHistory()
+                UserDefaults.standard.removeObject(forKey: historyKey)
+            }
         } catch {
             print("❌ Failed to load history: \(error)")
         }

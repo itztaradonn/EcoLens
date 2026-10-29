@@ -124,7 +124,12 @@ struct ContentView: View {
         .onAppear {
             startLeafAnimations()
         }
-        .alert("Classification Error", isPresented: .constant(viewModel.errorMessage != nil)) {
+        .alert("Classification Error", isPresented: Binding(
+            get: { viewModel.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented { viewModel.resetToIdle() }
+            }
+        )) {
             Button("OK") {
                 viewModel.resetToIdle()
             }

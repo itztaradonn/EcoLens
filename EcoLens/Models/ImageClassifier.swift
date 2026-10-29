@@ -10,15 +10,23 @@ import CoreML
 import Vision
 import UIKit
 
-// MARK: - Image Classifier
+/// MARK: - Image Classifier
 class ImageClassifier {
-    
+
     private var model: VNCoreMLModel?
-    
+
+    // All model access happens on this queue, so loading the model never blocks app launch
+    private let queue = DispatchQueue(label: "com.ecolens.classifier", qos: .userInitiated)
+
+    // Predictions below this confidence are ignored
+    private let minimumConfidence: Float = 0.10
+
     init() {
-        loadModel()
+        queue.async { [weak self] in
+            self?.loadModel()
+        }
     }
-    
+
     // MARK: - Load FastViT-T8 Model
     private func loadModel() {
         do {
@@ -26,13 +34,13 @@ class ImageClassifier {
             // The model file is "FastViTT8F16.mlpackage"
             let config = MLModelConfiguration()
             config.computeUnits = .all // Use GPU + Neural Engine for best performance
-            
+
             let mlModel = try FastViTT8F16(configuration: config).model
             model = try VNCoreMLModel(for: mlModel)
             print("✅ FastViT-T8 model loaded successfully")
         } catch {
             print("❌ Failed to load FastViT-T8 model: \(error.localizedDescription)")
-            
+
             // Fallback: try loading from bundle by name
             do {
                 guard let modelURL = Bundle.main.url(forResource: "FastViTT8F16", withExtension: "mlmodelc") else {
@@ -47,63 +55,53 @@ class ImageClassifier {
             }
         }
     }
-    
+
     // MARK: - Classify Image
     func classify(image: UIImage, completion: @escaping (Result<ClassificationResult, ClassificationError>) -> Void) {
-        guard let model = model else {
-            completion(.failure(.modelNotLoaded))
-            return
-        }
-        
         guard let cgImage = image.cgImage else {
             completion(.failure(.invalidImage))
             return
         }
-        
-        let request = VNCoreMLRequest(model: model) { request, error in
-            if let error = error {
+
+        // Camera photos are usually stored rotated; tell Vision so the model sees them upright
+        let orientation = CGImagePropertyOrientation(image.imageOrientation)
+
+        // Queued behind loadModel(), so this runs once the model is ready
+        queue.async { [weak self] in
+            guard let self = self else { return }
+
+            guard let model = self.model else {
+                DispatchQueue.main.async {
+                    completion(.failure(.modelNotLoaded))
+                }
+                return
+            }
+
+            let request = VNCoreMLRequest(model: model)
+            request.imageCropAndScaleOption = .centerCrop
+
+            let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+            do {
+                try handler.perform([request])
+            } catch {
                 DispatchQueue.main.async {
                     completion(.failure(.classificationFailed(error.localizedDescription)))
                 }
                 return
             }
-            
-            guard let results = request.results as? [VNClassificationObservation],
-                  let topResult = results.first else {
+
+            guard let results = request.results as? [VNClassificationObservation], !results.isEmpty else {
                 DispatchQueue.main.async {
                     completion(.failure(.noResults))
                 }
                 return
             }
-            
-            // Get top result
-            let label = topResult.identifier
-            let confidence = Double(topResult.confidence)
-            
-            // Map to trash category
-            let (category, decompositionTime) = TrashCategoryMapper.categorize(label: label)
-            
-            // If confidence is too low, mark as unknown
-            let finalCategory = confidence < 0.10 ? .unknown : category
-            let finalDecomposition = confidence < 0.10 ? "Unable to estimate" : decompositionTime
-            
-            // Create compressed image data for storage
-            let imageData = image.jpegData(compressionQuality: 0.3)
-            
-            let displayLabel = TrashCategoryMapper.displayName(for: label)
-            
-            let result = ClassificationResult(
-                detectedLabel: displayLabel.capitalized,
-                confidence: confidence,
-                category: finalCategory,
-                decompositionTime: finalDecomposition,
-                imageData: imageData
-            )
-            
+
+            let result = self.makeResult(from: results, image: image)
             DispatchQueue.main.async {
                 completion(.success(result))
             }
-            
+
             // Print top 5 results for debugging
             #if DEBUG
             print("\n🔍 Classification Results:")
@@ -113,26 +111,57 @@ class ImageClassifier {
             }
             #endif
         }
-        
-        // Configure the request
-        request.imageCropAndScaleOption = .centerCrop
-        
-        // Perform the request
-        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: .up, options: [:])
-        
-        DispatchQueue.global(qos: .userInitiated).async {
-            do {
-                try handler.perform([request])
-            } catch {
-                DispatchQueue.main.async {
-                    completion(.failure(.classificationFailed(error.localizedDescription)))
-                }
+    }
+
+    // MARK: - Build Result
+    /// Uses the most confident of the top 5 predictions that maps to a known category,
+    /// so a recognisable item isn't reported as unknown just because it wasn't ranked first
+    private func makeResult(from observations: [VNClassificationObservation], image: UIImage) -> ClassificationResult {
+        var chosen = observations[0]
+        var category: TrashCategory = .unknown
+        var decompositionTime = "Unable to estimate"
+
+        for observation in observations.prefix(5) where observation.confidence >= minimumConfidence {
+            let mapping = TrashCategoryMapper.categorize(label: observation.identifier)
+            if mapping.category != .unknown {
+                chosen = observation
+                category = mapping.category
+                decompositionTime = mapping.decompositionTime
+                break
             }
+        }
+
+        // Store a small thumbnail rather than the full-resolution photo
+        let imageData = image.thumbnail(maxDimension: 512).jpegData(compressionQuality: 0.6)
+
+        return ClassificationResult(
+            detectedLabel: TrashCategoryMapper.displayName(for: chosen.identifier).capitalized,
+            confidence: Double(chosen.confidence),
+            category: category,
+            decompositionTime: decompositionTime,
+            imageData: imageData
+        )
+    }
+}
+
+// MARK: - Orientation Conversion
+extension CGImagePropertyOrientation {
+    init(_ orientation: UIImage.Orientation) {
+        switch orientation {
+        case .up: self = .up
+        case .upMirrored: self = .upMirrored
+        case .down: self = .down
+        case .downMirrored: self = .downMirrored
+        case .left: self = .left
+        case .leftMirrored: self = .leftMirrored
+        case .right: self = .right
+        case .rightMirrored: self = .rightMirrored
+        @unknown default: self = .up
         }
     }
 }
 
-// MARK: - Classification Errors
+/ MARK: - Classification Errors
 enum ClassificationError: LocalizedError {
     case modelNotLoaded
     case invalidImage

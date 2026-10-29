@@ -50,6 +50,26 @@ extension UIImage {
         }
     }
     
+    /// Downscale so the longest side is at most `maxDimension` pixels (never upscales)
+    func thumbnail(maxDimension: CGFloat) -> UIImage {
+        let longestSide = max(size.width * scale, size.height * scale)
+        guard longestSide > maxDimension else { return self }
+
+        let scaleFactor = maxDimension / longestSide
+        let targetSize = CGSize(
+            width: size.width * scale * scaleFactor,
+            height: size.height * scale * scaleFactor
+        )
+
+        // Render at 1x so the size is in pixels, not points
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        return renderer.image { _ in
+            self.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+
     /// Center-crop and resize image to exact square size (for model input)
     func centerCroppedAndResized(to dimension: CGFloat) -> UIImage {
         let shortSide = min(size.width, size.height)
@@ -73,17 +93,26 @@ extension UIImage {
 
 // MARK: - Date Formatting
 extension Date {
-    var timeAgoDisplay: String {
+    // Formatters are expensive to create, so share them instead of building one per list row
+    private static let relativeFormatter: RelativeDateTimeFormatter = {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .abbreviated
-        return formatter.localizedString(for: self, relativeTo: Date())
-    }
-    
-    var formattedDisplay: String {
+        return formatter
+    }()
+
+    private static let displayFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
-        return formatter.string(from: self)
+        return formatter
+    }()
+
+    var timeAgoDisplay: String {
+        Date.relativeFormatter.localizedString(for: self, relativeTo: Date())
+    }
+
+    var formattedDisplay: String {
+        Date.displayFormatter.string(from: self)
     }
 }
 

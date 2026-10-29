@@ -68,36 +68,55 @@ struct ClassificationResult: Identifiable, Codable {
 // MARK: - ImageNet Label to Trash Category Mapping
 struct TrashCategoryMapper {
     
+    typealias Mapping = (category: TrashCategory, decompositionTime: String)
+
     /// Maps an ImageNet label to a TrashCategory with decomposition info
-    static func categorize(label: String) -> (category: TrashCategory, decompositionTime: String) {
-        let normalizedLabel = label.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        // Check biodegradable items first
-        if let info = biodegradableItems[normalizedLabel] {
-            return (.biodegradable, info)
-        }
-        
-        // Check non-biodegradable items
-        if let info = nonBiodegradableItems[normalizedLabel] {
-            return (.nonBiodegradable, info)
-        }
-        
-        // Fuzzy match — check if label contains any known keywords
-        for (key, info) in biodegradableItems {
-            if normalizedLabel.contains(key) || key.contains(normalizedLabel) {
-                return (.biodegradable, info)
+    static func categorize(label: String) -> Mapping {
+        // ImageNet labels may use underscores and list comma-separated synonyms,
+        // e.g. "cellular_telephone, cellular_phone, cellphone"
+        let synonyms = label
+            .replacingOccurrences(of: "_", with: " ")
+            .lowercased()
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        // Exact match on any synonym
+        for synonym in synonyms {
+            if let mapping = lookup[synonym] {
+                return mapping
             }
         }
-        
-        for (key, info) in nonBiodegradableItems {
-            if normalizedLabel.contains(key) || key.contains(normalizedLabel) {
-                return (.nonBiodegradable, info)
+
+        // Whole-word match, longest key first so "water bottle" beats "bottle"
+        // and short keys like "ear" don't match inside "bearskin"
+        for synonym in synonyms {
+            let padded = " \(synonym) "
+            for entry in entriesByLength where padded.contains(" \(entry.key) ") {
+                return entry.value
             }
         }
-        
+
         return (.unknown, "Unable to estimate")
     }
-    
+
+    /// Every mapping keyed by lowercased label
+    private static let lookup: [String: Mapping] = {
+        var table: [String: Mapping] = [:]
+        for (key, time) in nonBiodegradableItems {
+            table[key.lowercased()] = (.nonBiodegradable, time)
+        }
+        for (key, time) in biodegradableItems {
+            table[key.lowercased()] = (.biodegradable, time)
+        }
+        return table
+    }()
+
+    /// Lookup entries sorted longest key first (then alphabetically) for deterministic partial matching
+    private static let entriesByLength: [(key: String, value: Mapping)] = lookup.sorted {
+        $0.key.count != $1.key.count ? $0.key.count > $1.key.count : $0.key < $1.key
+    }
+
     // MARK: - Biodegradable Items (ImageNet labels)
     static let biodegradableItems: [String: String] = [
         // Fruits
