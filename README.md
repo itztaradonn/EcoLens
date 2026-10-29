@@ -1,4 +1,4 @@
-# 🌿 EcoLens — AI Trash Classification App
+# 🌿 EcoLens - AI Trash Classification App
 
 > **Scan trash with your camera and instantly know if it's biodegradable or not!**
 
